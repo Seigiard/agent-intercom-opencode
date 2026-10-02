@@ -1,5 +1,5 @@
 // opencode/plugin-v2.ts
-import { resolve as resolve3 } from "node:path";
+import { resolve as resolve2 } from "node:path";
 
 // opencode/plugin.ts
 import { appendFileSync } from "fs";
@@ -187,8 +187,10 @@ function getAgentDirPath(env = process.env, homeDir = homedir(), cwd = process.c
   }
   return isAbsolute(configured) ? configured : resolve(cwd, configured);
 }
-function getIntercomDirPath(agentDir = getAgentDirPath()) {
-  return join(agentDir, "intercom");
+function getIntercomDirPath(agentDir = getAgentDirPath(), env = process.env, cwd = process.cwd()) {
+  const configured = env.INTERCOM_DIR?.trim();
+  if (!configured) return join(agentDir, "intercom");
+  return isAbsolute(configured) ? configured : resolve(cwd, configured);
 }
 function shouldUseWindowsTcpTransport(platform = process.platform, env = process.env) {
   if (platform !== "win32") {
@@ -204,13 +206,14 @@ function shouldUseWindowsTcpTransport(platform = process.platform, env = process
 function getBrokerPortFilePath(intercomDir = getIntercomDirPath()) {
   return join(intercomDir, "broker.port.json");
 }
-function getBrokerSocketPath(platform = process.platform, agentDir = getAgentDirPath()) {
+function getBrokerSocketPath(platform = process.platform, agentDir = getAgentDirPath(), env = process.env) {
+  const intercomDir = getIntercomDirPath(agentDir, env);
   if (platform === "win32") {
-    return `\\\\.\\pipe\\pi-intercom-${sanitizePipeSegment(agentDir)}`;
+    return `\\\\.\\pipe\\pi-intercom-${sanitizePipeSegment(env.INTERCOM_DIR?.trim() ? intercomDir : agentDir)}`;
   }
-  return join(getIntercomDirPath(agentDir), "broker.sock");
+  return join(intercomDir, "broker.sock");
 }
-function getBrokerConnectTarget(platform = process.platform, env = process.env, intercomDir = getIntercomDirPath(getAgentDirPath(env))) {
+function getBrokerConnectTarget(platform = process.platform, env = process.env, intercomDir = getIntercomDirPath(getAgentDirPath(env), env)) {
   if (shouldUseWindowsTcpTransport(platform, env)) {
     const endpointFile = getBrokerPortFilePath(intercomDir);
     const raw = readFileSync(endpointFile, "utf-8");
@@ -224,7 +227,7 @@ function getBrokerConnectTarget(platform = process.platform, env = process.env, 
     }
     return { transport: "tcp", host: endpoint.host, port: endpoint.port, stateId: endpoint.stateId };
   }
-  return getBrokerSocketPath(platform, getAgentDirPath(env));
+  return getBrokerSocketPath(platform, getAgentDirPath(env), env);
 }
 function ensureIntercomRuntimeDir(intercomDir = getIntercomDirPath(), platform = process.platform) {
   mkdirSync(intercomDir, { recursive: true, mode: INTERCOM_DIR_MODE });
@@ -663,7 +666,7 @@ var IntercomClient = class extends EventEmitter {
     if (this.socket) {
       return Promise.reject(new Error("Already connected"));
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve3, reject) => {
       let socket;
       let target;
       try {
@@ -693,7 +696,7 @@ var IntercomClient = class extends EventEmitter {
         settled = true;
         connectionEstablished = true;
         cleanupConnectionAttempt();
-        resolve4();
+        resolve3();
       };
       const onError = (err) => {
         settled = true;
@@ -1040,7 +1043,7 @@ var IntercomClient = class extends EventEmitter {
     this.disconnectError = null;
     this.failPending(new Error("Client disconnected"));
     if (!preserveAsks) this.outbox?.clear();
-    await new Promise((resolve4) => {
+    await new Promise((resolve3) => {
       let settled = false;
       const finish = () => {
         if (settled) {
@@ -1050,7 +1053,7 @@ var IntercomClient = class extends EventEmitter {
         clearTimeout(timeout);
         socket.off("close", onClose);
         socket.off("error", onError);
-        resolve4();
+        resolve3();
       };
       const onClose = () => finish();
       const onError = () => {
@@ -1076,11 +1079,11 @@ var IntercomClient = class extends EventEmitter {
     } catch (error) {
       return Promise.reject(toError(error));
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve3, reject) => {
       const requestId = randomUUID2();
       const wrappedResolve = (sessions) => {
         clearTimeout(timeout);
-        resolve4(sessions);
+        resolve3(sessions);
       };
       const wrappedReject = (error) => {
         clearTimeout(timeout);
@@ -1134,10 +1137,10 @@ var IntercomClient = class extends EventEmitter {
     } catch (error) {
       return Promise.reject(toError(error));
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve3, reject) => {
       const wrappedResolve = (result) => {
         clearTimeout(timeout);
-        resolve4(result);
+        resolve3(result);
       };
       const wrappedReject = (error) => {
         clearTimeout(timeout);
@@ -1185,14 +1188,14 @@ var IntercomClient = class extends EventEmitter {
         reason: `Boss control message ID ${envelope.messageId} is already pending`
       });
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve3, reject) => {
       const timeout = setTimeout(() => {
         if (!this.pendingBossControls.delete(envelope.messageId)) return;
         reject(new Error("Boss control send timeout"));
       }, 1e4);
       const wrappedResolve = (result) => {
         clearTimeout(timeout);
-        resolve4(result);
+        resolve3(result);
       };
       const wrappedReject = (error) => {
         clearTimeout(timeout);
@@ -1224,17 +1227,17 @@ var IntercomClient = class extends EventEmitter {
   }
   sendAskControl(action, messageId) {
     const requestId = randomUUID2();
-    return new Promise((resolve4) => {
+    return new Promise((resolve3) => {
       const timeout = setTimeout(() => {
         this.pendingAskControls.delete(requestId);
-        resolve4(false);
+        resolve3(false);
       }, 2e3);
       timeout.unref?.();
-      this.pendingAskControls.set(requestId, { resolve: resolve4, timeout });
+      this.pendingAskControls.set(requestId, { resolve: resolve3, timeout });
       if (!this.writeControlMessage({ type: action === "defer" ? "defer_ask" : "cancel_ask", requestId, messageId })) {
         clearTimeout(timeout);
         this.pendingAskControls.delete(requestId);
-        resolve4(false);
+        resolve3(false);
       }
     });
   }
@@ -1294,7 +1297,7 @@ var EXTENSION_DIR = join3(dirname2(fileURLToPath(import.meta.url)), "..");
 var BROKER_PID = join3(INTERCOM_DIR, "broker.pid");
 var BROKER_SPAWN_LOCK = join3(INTERCOM_DIR, "broker.spawn.lock");
 function sleep(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 function getTsxCliPath(extensionDir = EXTENSION_DIR) {
   try {
@@ -1397,7 +1400,12 @@ function getBrokerSpawnOptions(extensionDir = EXTENSION_DIR, env = process.env) 
     detached: true,
     stdio: "ignore",
     cwd: extensionDir,
-    env: { ...env, PI_CODING_AGENT_DIR: getAgentDirPath(env), NODE_NO_WARNINGS: "1" },
+    env: {
+      ...env,
+      PI_CODING_AGENT_DIR: getAgentDirPath(env),
+      ...env.INTERCOM_DIR?.trim() ? { INTERCOM_DIR: getIntercomDirPath(getAgentDirPath(env), env) } : {},
+      NODE_NO_WARNINGS: "1"
+    },
     windowsHide: true
   };
 }
@@ -1436,7 +1444,7 @@ async function spawnBrokerIfNeeded(brokerCommand, brokerArgs) {
     }
     const child = spawn(launch.command, launch.args, getBrokerSpawnOptions());
     child.unref();
-    await new Promise((resolve4, reject) => {
+    await new Promise((resolve3, reject) => {
       const cleanup = () => {
         child.off("error", onError);
         child.off("exit", onExit);
@@ -1460,7 +1468,7 @@ async function spawnBrokerIfNeeded(brokerCommand, brokerArgs) {
       child.once("exit", onExit);
       waitForBroker().then(() => {
         cleanup();
-        resolve4();
+        resolve3();
       }, (error) => {
         cleanup();
         reject(toError2(error));
@@ -1516,12 +1524,12 @@ async function checkSocketConnectable() {
   return await checkBrokerHealth() === "compatible";
 }
 function checkBrokerHealth() {
-  return new Promise((resolve4) => {
+  return new Promise((resolve3) => {
     let target;
     try {
       target = getBrokerConnectTarget();
     } catch {
-      resolve4("unreachable");
+      resolve3("unreachable");
       return;
     }
     const socket = connectToBrokerTarget2(target);
@@ -1538,7 +1546,7 @@ function checkBrokerHealth() {
       socket.off("error", onError);
       socket.off("data", reader);
       socket.destroy();
-      resolve4(health);
+      resolve3(health);
     };
     const onConnect = () => {
       try {
@@ -1637,8 +1645,7 @@ async function waitForBroker(timeoutMs = 5e3) {
 
 // config.ts
 import { existsSync as existsSync3, readFileSync as readFileSync5 } from "fs";
-import { join as join4, resolve as resolve2 } from "path";
-import { homedir as homedir2 } from "os";
+import { join as join4 } from "path";
 var DEFAULT_ASK_TIMEOUT_MS = 45 * 1e3;
 var MAX_ASK_TIMEOUT_MS = 120 * 1e3;
 function validateAskTimeoutMs(value, name = "timeout_ms") {
@@ -1659,8 +1666,7 @@ function getAskTimeoutMs() {
   return validateAskTimeoutMs(value, "PI_INTERCOM_ASK_TIMEOUT_MS");
 }
 function getConfigPath() {
-  const agentDir = process.env.PI_CODING_AGENT_DIR ? resolve2(process.env.PI_CODING_AGENT_DIR) : join4(homedir2(), ".pi", "agent");
-  return join4(agentDir, "intercom", "opencode-config.json");
+  return join4(getIntercomDirPath(), "opencode-config.json");
 }
 var defaults = {
   brokerCommand: "npx",
@@ -1806,9 +1812,9 @@ var connectedTo = (sessions, target) => {
   const normalized = target.toLowerCase();
   return sessions.some((session) => session.id === target || session.name?.toLowerCase() === normalized);
 };
-async function readWorkers(agentDir) {
+async function readWorkers(intercomDir) {
   try {
-    const parsed = JSON.parse(await readFile(join6(agentDir, "intercom", "orchestrator", "workers.json"), "utf8"));
+    const parsed = JSON.parse(await readFile(join6(intercomDir, "orchestrator", "workers.json"), "utf8"));
     return Array.isArray(parsed.workers) ? parsed.workers : [];
   } catch {
     return [];
@@ -1816,7 +1822,7 @@ async function readWorkers(agentDir) {
 }
 async function resolveIntercomTeam(input) {
   const env = input.env ?? process.env;
-  const workers = await readWorkers(input.agentDir ?? getAgentDirPath());
+  const workers = await readWorkers(getIntercomDirPath(input.agentDir ?? getAgentDirPath(env), env));
   const workerId = stringValue(env.AGENT_INTERCOM_WORKER_ID);
   const runId = stringValue(env.AGENT_INTERCOM_RUN_ID);
   const current = workerId ? workers.find((worker) => stringValue(worker.id) === workerId && (!runId || stringValue(worker.runId) === runId)) : void 0;
@@ -2135,7 +2141,7 @@ var OpenCodeIntercomRuntime = class {
     this.unresolvedAsks.delete(messageId);
   }
   waitForReply(from, replyTo, timeoutMs = getAskTimeoutMs(), signal) {
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve3, reject) => {
       if (signal?.aborted) {
         reject(new Error("intercom_ask cancelled"));
         return;
@@ -2158,7 +2164,7 @@ var OpenCodeIntercomRuntime = class {
         reject(new Error(`No reply from "${from}" within ${Math.round(timeoutMs / 1e3)} seconds`));
       }, timeoutMs);
       signal?.addEventListener("abort", onAbort, { once: true });
-      this.replyWaiters.set(replyTo, { from, replyTo, resolve: resolve4, reject, timeout, cleanup });
+      this.replyWaiters.set(replyTo, { from, replyTo, resolve: resolve3, reject, timeout, cleanup });
     });
   }
   async resolveTarget(to) {
@@ -2359,7 +2365,7 @@ function isFleetManagementEnabled(env = process.env) {
 async function invokeAgentFleet(params, context, env = process.env) {
   const command = env.AGENT_INTERCOM_FLEET_COMMAND?.trim() || "agent-intercom-fleet";
   const timeoutMs = Number(env.AGENT_INTERCOM_FLEET_TIMEOUT_MS || 12e4);
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve3, reject) => {
     const child = spawn2(command, [], {
       cwd: context.cwd,
       env,
@@ -2374,7 +2380,7 @@ async function invokeAgentFleet(params, context, env = process.env) {
       settled = true;
       if (timer) clearTimeout(timer);
       if (error) reject(error);
-      else resolve4(value);
+      else resolve3(value);
     };
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
@@ -3023,7 +3029,7 @@ var toolSchemas = {
   intercom_reply: { properties: { message: { type: "string" }, to: { type: "string" }, which: { type: "string", enum: ["oldest", "latest"] } }, required: ["message"] }
 };
 function sameDirectory(left, right) {
-  return typeof left === "string" && resolve3(left) === resolve3(right);
+  return typeof left === "string" && resolve2(left) === resolve2(right);
 }
 function legacyPart(message, sessionID) {
   if (message.type === "user" || message.type === "synthetic" || message.type === "system") {
